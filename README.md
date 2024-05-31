@@ -14,7 +14,7 @@ ref: [ごみ収集カレンダー／つくば市公式ウェブサイト](https:
 
 ### Dependencies
 ```
-❯ python-V                            
+❯ python -V                            
 Python 3.12.3
 ```
 ```
@@ -34,10 +34,6 @@ dependencies = [
 - Install Rye
 ```
 ❯ pip install rye
-```
-
-- Rye Sync
-```
 ❯ rye sync
 ```
 
@@ -49,7 +45,7 @@ dependencies = [
 ```
 
 ### Arguments
-設定値は `scripts/process_calendar.sh` の中で切り替えられる他、 `scripts/generate_json_calendar_data.py` の実行時引数として渡すこともできる
+設定値は `scripts/process_calendar.sh` の中で切り替えられる他、 `scripts/generate_json_calendar_data.py` の実行時引数として渡すことも可能です
 
 |         設定値        |                 備考                |                       例                      |
 |:---------------------:|:-----------------------------------:|:---------------------------------------------:|
@@ -59,3 +55,16 @@ dependencies = [
 |       START_DATE      |               開始日時              |                    20240401                   |
 |        END_DATE       |               終了日時              |                    20250331                   |
 | OUTPUT_JSON_FILE_NAME |        出力するJSONファイル名       | ../calendar_data/2024/json/calendar_data.json |
+
+## Use JSON Calendar file
+`calendar/` 以下の json ファイルについては自由にお使いください。  
+Slack Bot 通知などに役立てば幸いです。
+
+## Licenses
+つくば市から提供されている Excel ファイルデータは クリエイティブ・コモンズ BY 4.0 でライセンスされています。  
+詳しくは `calendar_data/` 以下の `LICENSE` ファイルを確認してください。
+
+上記を除く全ては MIT ライセンスで提供されます。
+
+## Contribute
+バグレポートや Pull Request は 当リポジトリまでお願いします。
