@@ -88,7 +88,7 @@ class GarbageCalendarProcesser:
         self.true_key = true_key
         self.false_key = false_key
 
-    def process_calender(self):
+    def process_calendar(self):
         # シートのデータを辞書としてロード
 
         # 指定したディレクトリ内のすべてのxlsxファイルを開く
@@ -173,7 +173,8 @@ class GarbageCalendarProcesser:
                 garbage_header_list.append(GarbageType(header_item))
             else:
                 logger.error(f"Error: index: {i}, {header_item} is not in GarbageType")
-                garbage_header_list.append(None)
+                logger.error("Please check first row values of this excel file .")
+                raise ValueError(f"Error: index: {i}, {header_item} is not in GarbageType")
         return garbage_header_list
 
     def __blank_calendar_item(self):
@@ -206,6 +207,13 @@ class GarbageCalendarProcesser:
             json.dump(data, f, ensure_ascii=False, indent=4, sort_keys=True)
 
 
+def valid_date(s):
+    try:
+        return datetime.strptime(s, "%Y%m%d")
+    except ValueError:
+        raise argparse.ArgumentTypeError("Not a valid date: '{0}'.".format(s))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -228,13 +236,13 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--start",
-        type=str,
+        type=valid_date,
         required=True,
         help="カレンダー開始日時: ex. 20240401",
     )
     parser.add_argument(
         "--end",
-        type=str,
+        type=valid_date,
         required=True,
         help="カレンダー終了日時: ex. 20250331",
     )
@@ -246,21 +254,13 @@ if __name__ == "__main__":
     )
 
     params = parser.parse_args()
-    try:
-        start_date = datetime.strptime(params.start, "%Y%m%d")
-        end_date = datetime.strptime(params.end, "%Y%m%d")
-    except ValueError:
-        logger.error("Error: start or end date is invalid format")
-        logger.error(f"current start date: {params.start}")
-        logger.error(f"current end date: {params.end}")
-        exit(1)
 
     app = GarbageCalendarProcesser(
         params.excel_dir,
         params.excel_name_format,
         params.sheet_name,
-        start_date,
-        end_date,
+        params.start,
+        params.end,
         params.output_json_file_name,
     )
-    app.process_calender()
+    app.process_calendar()
