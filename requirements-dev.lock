@@ -9,3 +9,9 @@
 #   generate-hashes: false
 
 -e file:.
+et-xmlfile==1.1.0
+    # via openpyxl
+openpyxl==3.1.3
+    # via tsukuba-garbage-calendar
+ruff==0.4.6
+    # via tsukuba-garbage-calendar
