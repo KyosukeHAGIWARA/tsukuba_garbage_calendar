@@ -1,3 +1,4 @@
+import argparse
 import openpyxl
 import os
 import glob
@@ -9,25 +10,8 @@ from datetime import datetime, timedelta
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-EXCEL_FILE_DIRECTORY = "../calendar_data/2024/xlsx/"
-EXCEL_FILE_FORMAT = "*.xlsx"
-EXCEL_SHEET_NAME = "ごみ出しパターン例外一括編集"
 
-START_DATE = datetime(2024, 4, 1)
-END_DATE = datetime(2025, 3, 31)
-
-SUBJECT_BLOCK_LIST_KEY = "subject_block_list"
-SUBJECT_BLOCK_KEY = "subject_block"
-SUBJECT_BLOCK_PRONUNCIATION_KEY = "subject_block_pronunciation"
-CALENDAR_KEY = "calendar"
-
-TRUE_KEY = "true"
-FALSE_KEY = "false"
-
-OUTPUT_JSON_FILE_NAME = "../calendar_data/2024/json/calendar_data.json"
-
-
-class GARBAGE_TYPE(Enum):
+class GarbageType(Enum):
     BURNABLE = "燃やせるごみ"
     BOTTLE = "びん"
     SPRAY = "スプレー容器"
@@ -43,151 +27,240 @@ class GARBAGE_TYPE(Enum):
         return list(map(lambda c: c.value, cls))
 
 
-def app():
-    # シートのデータを辞書としてロード
-    calendar_data = {}
-    """calendar_data は以下の形式でデータを保持する
-    {
-        '地区エリアA':{
-            'subject_block_list':{
-                '赤塚': {
-                    'subject_block': '赤塚',
-                    'subject_block_pronunciation': 'あかつか'
-                },
-                '青塚': {...}
-            },
-            'calendar':{
-                '2024/04/01':{
-                    GARBAGE_TYPE.BURNABLE: 'true',
-                    GARBAGE_TYPE.BOTTLE: 'true',
-                    GARBAGE_TYPE.SPRAY: 'true',
-                    GARBAGE_TYPE.PET: 'true',
-                    GARBAGE_TYPE.NON_BURNABLE: 'true',
-                    GARBAGE_TYPE.PAPER_CLOTH: 'true',
-                    GARBAGE_TYPE.PLASTIC: 'true',
-                    GARBAGE_TYPE.CAN: 'true',
-                    GARBAGE_TYPE.BULKY_WASTE: 'false',
-                },
-                {...}
-            }
-        },
-        '地区エリアB':{...}
-    }
-    """
-
-    # 指定したディレクトリ内のすべてのxlsxファイルを開く
-    for monthly_file_name in glob.glob(
-        os.path.join(EXCEL_FILE_DIRECTORY, EXCEL_FILE_FORMAT)
+class GarbageCalendarProcesser:
+    def __init__(
+        self,
+        excel_file_directory: str,
+        excel_file_format: str,
+        excel_sheet_name: str,
+        start_date: str,
+        end_date: str,
+        output_json_file_name: str,
+        subject_block_list_key="subject_block_list",
+        subject_block_key="subject_block",
+        subject_block_pronunciation_key="subject_block_pronunciation",
+        calendar_key="calendar",
+        true_key="true",
+        false_key="false",
     ):
-        logger.info(f"processing excel file: {monthly_file_name}")
-        # ワークブックを開く
-        workbook = openpyxl.load_workbook(monthly_file_name)
-        # シートを開く
-        sheet = workbook[EXCEL_SHEET_NAME]
-        rows = sheet.iter_rows(values_only=True)
+        self.excel_file_directory = excel_file_directory
+        self.excel_file_format = excel_file_format
+        self.excel_sheet_name = excel_sheet_name
+        self.start_date = start_date
+        self.end_date = end_date
+        self.output_json_file_name = output_json_file_name
 
-        # シートのデータを読み取って calendar_data に格納
-        analyze_sheet_data(rows, calendar_data)
-    else:
-        logger.info("finish processing all excel files")
-        filled_calendar_data = fill_in_no_pickup_date(calendar_data)
+        self.calendar_data = {}
+        """calendar_data は以下の形式でデータを保持する
+        {
+            '地区エリアA':{
+                'subject_block_list':{
+                    '赤塚': {
+                        'subject_block': '赤塚',
+                        'subject_block_pronunciation': 'あかつか'
+                    },
+                    '青塚': {...}
+                },
+                'calendar':{
+                    '2024/04/01':{
+                        GARBAGE_TYPE.BURNABLE: 'true',
+                        GARBAGE_TYPE.BOTTLE: 'true',
+                        GARBAGE_TYPE.SPRAY: 'true',
+                        GARBAGE_TYPE.PET: 'true',
+                        GARBAGE_TYPE.NON_BURNABLE: 'true',
+                        GARBAGE_TYPE.PAPER_CLOTH: 'true',
+                        GARBAGE_TYPE.PLASTIC: 'true',
+                        GARBAGE_TYPE.CAN: 'true',
+                        GARBAGE_TYPE.BULKY_WASTE: 'false',
+                    },
+                    {...}
+                }
+            },
+            '地区エリアB':{...}
+        }
+        """
 
-        logger.info(f"output to json file: {OUTPUT_JSON_FILE_NAME}")
-        output_json_file(OUTPUT_JSON_FILE_NAME, filled_calendar_data)
-        logger.info("output finished")
+        # you can change the key name for output json if you want
+        self.subject_block_list_key = subject_block_list_key
+        self.subject_block_key = subject_block_key
+        self.subject_block_pronunciation_key = subject_block_pronunciation_key
+        self.calendar_key = calendar_key
+        self.true_key = true_key
+        self.false_key = false_key
 
+    def process_calendar(self):
+        # シートのデータを辞書としてロード
 
-def analyze_sheet_data(rows, calendar_data):
-    # 1行目の header 行からゴミの種類の並び順を取得
-    first_row = list(next(rows))
-    garbage_header_list = generate_garbage_header(first_row)
-    logger.debug(f"garbage_header_list: {garbage_header_list}")
-
-    for row in rows:
-        subject_block = row[0]
-
-        address_annotation = row[1].split()
-        logger.debug(address_annotation)
-        subject_area = address_annotation[0]
-        subject_block_pronunciation = address_annotation[1]
-        logger.debug("")
-        logger.debug(
-            f"subject_area: {subject_area}, subject_block: {subject_block}, subject_block_pronunciation: {subject_block_pronunciation}"
-        )
-
-        # insert subject_block data
-        if subject_area not in calendar_data:
-            calendar_data[subject_area] = {
-                SUBJECT_BLOCK_LIST_KEY: {},
-                CALENDAR_KEY: {},
-            }
-        if subject_block not in calendar_data.get(subject_area, {}).get(
-            SUBJECT_BLOCK_LIST_KEY, {}
+        # 指定したディレクトリ内のすべてのxlsxファイルを開く
+        for monthly_file_name in glob.glob(
+            os.path.join(self.excel_file_directory, self.excel_file_format)
         ):
-            calendar_data[subject_area][SUBJECT_BLOCK_LIST_KEY][subject_block] = {
-                SUBJECT_BLOCK_KEY: subject_block,
-                SUBJECT_BLOCK_PRONUNCIATION_KEY: subject_block_pronunciation,
-            }
+            logger.info(f"processing excel file: {monthly_file_name}")
+            # ワークブックを開く
+            workbook = openpyxl.load_workbook(monthly_file_name)
+            # シートを開く
+            sheet = workbook[self.excel_sheet_name]
+            rows = sheet.iter_rows(values_only=True)
 
-        date_list = list(row[2:])
-        for index, date_item in enumerate(date_list):
-            current_garbage_type = garbage_header_list[index]
-            date_list = date_item.split(",")
+            # シートのデータを読み取って calendar_data に格納
+            self.__analyze_sheet_data(rows, self.calendar_data)
+        else:
+            logger.info("finish processing all excel files")
+            filled_calendar_data = self.__fill_in_no_pickup_date(self.calendar_data)
+
+            logger.info(f"output to json file: {self.output_json_file_name}")
+            self.__output_json_file(self.output_json_file_name, filled_calendar_data)
+            logger.info("output finished")
+
+    def __analyze_sheet_data(self, rows, calendar_data):
+        # 1行目の header 行からゴミの種類の並び順を取得
+        first_row = list(next(rows))
+        garbage_header_list = self.__generate_garbage_header(first_row)
+        logger.debug(f"garbage_header_list: {garbage_header_list}")
+
+        # 2行目以降のデータを読み取る
+        for row in rows:
+            subject_block = row[0]
+
+            address_annotation = row[1].split()
+            logger.debug(address_annotation)
+            subject_area = address_annotation[0]
+            subject_block_pronunciation = address_annotation[1]
+            logger.debug("")
             logger.debug(
-                f"garbage_type: {current_garbage_type}, date_item: {date_list}"
+                f"subject_area: {subject_area}, subject_block: {subject_block}, subject_block_pronunciation: {subject_block_pronunciation}"
             )
 
-            # insert calendar data
-            for date in date_list:
-                if date not in calendar_data[subject_area][CALENDAR_KEY]:
-                    calendar_data[subject_area][CALENDAR_KEY][date] = (
-                        blank_calendar_item()
-                    )
+            # insert subject_block data
+            if subject_area not in calendar_data:
+                calendar_data[subject_area] = {
+                    self.subject_block_list_key: {},
+                    self.calendar_key: {},
+                }
+            if subject_block not in calendar_data.get(subject_area, {}).get(
+                self.subject_block_list_key, {}
+            ):
+                calendar_data[subject_area][self.subject_block_list_key][
+                    subject_block
+                ] = {
+                    self.subject_block_key: subject_block,
+                    self.subject_block_pronunciation_key: subject_block_pronunciation,
+                }
 
-                calendar_data[subject_area][CALENDAR_KEY][date][
-                    current_garbage_type.value
-                ] = TRUE_KEY
-
-
-def generate_garbage_header(header_list):
-    garbage_header_list = []
-    for i, header_item in enumerate(header_list[2:]):
-        if header_item in GARBAGE_TYPE.show_all():
-            garbage_header_list.append(GARBAGE_TYPE(header_item))
-        else:
-            logger.error(f"Error: index: {i}, {header_item} is not in GARBAGE_TYPE")
-            garbage_header_list.append(None)
-    return garbage_header_list
-
-
-def blank_calendar_item():
-    calendar_blank = {}
-    for garbage_type in GARBAGE_TYPE:
-        calendar_blank[garbage_type.value] = FALSE_KEY
-
-    return calendar_blank
-
-
-def fill_in_no_pickup_date(calendar_data):
-    for subject_area in calendar_data:
-        current_date = START_DATE
-        while current_date <= END_DATE:
-            current_date_str = current_date.strftime("%Y/%m/%d")
-            if current_date_str not in calendar_data[subject_area][CALENDAR_KEY]:
-                calendar_data[subject_area][CALENDAR_KEY][current_date_str] = (
-                    blank_calendar_item()
+            date_list = list(row[2:])
+            for index, date_item in enumerate(date_list):
+                current_garbage_type = garbage_header_list[index]
+                date_list = date_item.split(",")
+                logger.debug(
+                    f"garbage_type: {current_garbage_type}, date_item: {date_list}"
                 )
-                logger.debug(f"fill in no pickup date: {current_date_str}")
-            current_date += timedelta(days=1)
 
-    return calendar_data
+                # insert calendar data
+                for date in date_list:
+                    if date not in calendar_data[subject_area][self.calendar_key]:
+                        calendar_data[subject_area][self.calendar_key][date] = (
+                            self.__blank_calendar_item()
+                        )
+
+                    calendar_data[subject_area][self.calendar_key][date][
+                        current_garbage_type.value
+                    ] = self.true_key
+
+    def __generate_garbage_header(self, header_list):
+        garbage_header_list = []
+        for i, header_item in enumerate(header_list[2:]):
+            if header_item in GarbageType.show_all():
+                garbage_header_list.append(GarbageType(header_item))
+            else:
+                logger.error(f"Error: index: {i}, {header_item} is not in GarbageType")
+                logger.error("Please check first row values of this excel file .")
+                raise ValueError(f"Error: index: {i}, {header_item} is not in GarbageType")
+        return garbage_header_list
+
+    def __blank_calendar_item(self):
+        calendar_blank = {}
+        for garbage_type in GarbageType:
+            calendar_blank[garbage_type.value] = self.false_key
+
+        return calendar_blank
+
+    def __fill_in_no_pickup_date(self, calendar_data):
+        for subject_area in calendar_data:
+            current_date = self.start_date
+            while current_date <= self.end_date:
+                current_date_str = current_date.strftime("%Y/%m/%d")
+                if (
+                    current_date_str
+                    not in calendar_data[subject_area][self.calendar_key]
+                ):
+                    calendar_data[subject_area][self.calendar_key][current_date_str] = (
+                        self.__blank_calendar_item()
+                    )
+                    logger.debug(f"fill in no pickup date: {current_date_str}")
+                current_date += timedelta(days=1)
+
+        return calendar_data
+
+    def __output_json_file(self, file_name, data):
+        # JSONファイルに出力
+        with open(file_name, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4, sort_keys=True)
 
 
-def output_json_file(file_name, data):
-    # JSONファイルに出力
-    with open(file_name, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4, sort_keys=True)
+def valid_date(s):
+    try:
+        return datetime.strptime(s, "%Y%m%d")
+    except ValueError:
+        raise argparse.ArgumentTypeError("Not a valid date: '{0}'.".format(s))
 
 
 if __name__ == "__main__":
-    app()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--excel_dir",
+        type=str,
+        required=True,
+        help="Excelファイルが置かれたディレクトリ: ex. ../calendar_data/2024/xlsx/",
+    )
+    parser.add_argument(
+        "--excel_name_format",
+        type=str,
+        required=True,
+        help="Excelファイル名のフォーマット: ex. *.xlsx",
+    )
+    parser.add_argument(
+        "--sheet_name",
+        type=str,
+        required=True,
+        help="Excelファイルのシート名: ex. ごみ出しパターン例外一括編集",
+    )
+    parser.add_argument(
+        "--start",
+        type=valid_date,
+        required=True,
+        help="カレンダー開始日時: ex. 20240401",
+    )
+    parser.add_argument(
+        "--end",
+        type=valid_date,
+        required=True,
+        help="カレンダー終了日時: ex. 20250331",
+    )
+    parser.add_argument(
+        "--output_json_file_name",
+        type=str,
+        required=True,
+        help="出力するJSONファイル名: ex. ../calendar_data/2024/json/calendar_data.json",
+    )
+
+    params = parser.parse_args()
+
+    app = GarbageCalendarProcesser(
+        params.excel_dir,
+        params.excel_name_format,
+        params.sheet_name,
+        params.start,
+        params.end,
+        params.output_json_file_name,
+    )
+    app.process_calendar()
